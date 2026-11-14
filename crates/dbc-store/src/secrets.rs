@@ -266,6 +266,7 @@ mod tests {
     }
 
     /// Uses the real macOS keychain; run by hand: `cargo test -p dbc-store keychain -- --ignored`.
+    #[cfg(target_os = "macos")]
     #[test]
     #[ignore = "touches the real keychain"]
     fn keychain_round_trip() {
