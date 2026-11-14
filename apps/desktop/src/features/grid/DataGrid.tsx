@@ -3,7 +3,7 @@ import { type KeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useS
 
 import type { SortKey, TypeCategory, Value } from "../../ipc";
 import type { EditorKind, Parsed } from "../edit/editors";
-import { copyText } from "../../lib/clipboard";
+import { copyWithToast } from "../../lib/copy";
 import { NO_TEXT_SUBSTITUTION } from "../../lib/quotes";
 import { toTsv } from "./copy";
 import { useSettings } from "../settings/settingsStore";
@@ -280,7 +280,8 @@ export function DataGrid({
     }
     if (pressed(event, "grid-copy") && range) {
       event.preventDefault();
-      void copyText(toTsv(rows, range));
+      const count = range.bottom - range.top + 1;
+      void copyWithToast(toTsv(rows, range), `${count} ${count === 1 ? "row" : "rows"}`);
       return;
     }
     if (event.key === "Enter" && focus) {
