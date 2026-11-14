@@ -221,6 +221,12 @@ export function DataGrid({
       : editing.cell;
     setSelection({ anchor: target, focus: target });
     scrollRef.current?.focus();
+    // Tab carries on editing in the next cell, like a spreadsheet.
+    const across =
+      move !== undefined &&
+      move.col !== 0 &&
+      (target.row !== editing.cell.row || target.col !== editing.cell.col);
+    if (across) startEdit(target);
     return true;
   };
 
@@ -626,6 +632,9 @@ function CellEditor({ left, width, column, editing, hint, onChange, onFinish }: 
   const done = useRef(false);
   const finish = (commit: boolean, move?: { row: number; col: number }) => {
     if (done.current) return;
+    // Finishing moves focus back to the grid, which blurs this input at once: mark it done
+    // first so that blur does not finish a second time.
+    done.current = true;
     done.current = onFinish(commit, move);
   };
   return (
