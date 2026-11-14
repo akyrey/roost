@@ -1,0 +1,95 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::io::Write;
+use std::sync::{Arc, Mutex};
+
+use tracing_subscriber::fmt::MakeWriter;
+
+use super::*;
+
+#[derive(Clone, Default)]
+struct Captured(Arc<Mutex<Vec<u8>>>);
+
+impl Write for Captured {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> MakeWriter<'a> for Captured {
+    type Writer = Self;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+fn capture() -> (Captured, tracing::subscriber::DefaultGuard) {
+    let captured = Captured::default();
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .with_writer(captured.clone())
+        .finish();
+    (captured, tracing::subscriber::set_default(subscriber))
+}
+
+fn text(captured: &Captured) -> String {
+    String::from_utf8(captured.0.lock().unwrap().clone()).unwrap()
+}
+
+#[tokio::test]
+async fn a_command_is_logged_by_name_duration_and_error_code_only() {
+    let (captured, _guard) = capture();
+    let secret_sql = "SELECT 'hunter2'";
+
+    let ok = logged("query_execute", async {
+        Ok::<_, AppError>(secret_sql.len())
+    })
+    .await;
+    let failed = logged("session_open", async {
+        Err::<(), _>(AppError::invalid(format!("bad {secret_sql}")))
+    })
+    .await;
+
+    let log = text(&captured);
+    assert_eq!(ok.unwrap(), secret_sql.len());
+    assert_eq!(failed.unwrap_err().code, "invalid_argument");
+    assert!(log.contains(r#""command":"query_execute""#), "{log}");
+    assert!(log.contains(r#""code":"invalid_argument""#), "{log}");
+    assert!(log.contains("elapsed_ms"), "{log}");
+    assert!(
+        !log.contains("hunter2"),
+        "the log must not hold SQL or messages: {log}"
+    );
+}
+
+#[test]
+fn log_files_are_daily_in_the_given_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut appender = appender(dir.path()).unwrap();
+
+    appender.write_all(b"{}\n").unwrap();
+    appender.flush().unwrap();
+
+    let names: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names.len(), 1);
+    let name = &names[0];
+    assert!(
+        name.starts_with("dunlin.") && name.ends_with(".log"),
+        "{name}"
+    );
+}
+
+#[test]
+fn init_writes_to_the_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let guard = init(dir.path()).unwrap();
+    drop(guard);
+    assert!(std::fs::read_dir(dir.path()).unwrap().next().is_some());
+}
