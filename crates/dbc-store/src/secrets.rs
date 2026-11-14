@@ -12,20 +12,26 @@ use crate::StoreError;
 /// Keychain service name (DECISIONS D-014).
 pub const KEYCHAIN_SERVICE: &str = "dunlin";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum SecretKind {
     DbPassword,
     SshPassword,
     SshKeyPassphrase,
+    /// The jump host's password and key passphrase (one jump host per connection).
+    JumpPassword,
+    JumpKeyPassphrase,
     TlsKeyPassphrase,
 }
 
 impl SecretKind {
-    pub const ALL: [SecretKind; 4] = [
+    pub const ALL: [SecretKind; 6] = [
         Self::DbPassword,
         Self::SshPassword,
         Self::SshKeyPassphrase,
+        Self::JumpPassword,
+        Self::JumpKeyPassphrase,
         Self::TlsKeyPassphrase,
     ];
 
@@ -34,6 +40,8 @@ impl SecretKind {
             Self::DbPassword => "db_password",
             Self::SshPassword => "ssh_password",
             Self::SshKeyPassphrase => "ssh_key_passphrase",
+            Self::JumpPassword => "jump_password",
+            Self::JumpKeyPassphrase => "jump_key_passphrase",
             Self::TlsKeyPassphrase => "tls_key_passphrase",
         }
     }
