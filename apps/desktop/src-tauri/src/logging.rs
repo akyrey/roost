@@ -6,6 +6,7 @@
 
 use std::future::Future;
 use std::path::Path;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use tracing_appender::non_blocking::WorkerGuard;
@@ -16,6 +17,26 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::error::AppError;
+
+/// When `run` started, for the cold start measurement (NFR-1, task 8.14).
+static STARTED: OnceLock<Instant> = OnceLock::new();
+
+/// Records the start of the app; later calls keep the first time.
+pub fn mark_start() {
+    STARTED.get_or_init(Instant::now);
+}
+
+/// Milliseconds from `mark_start` to now, logged as the cold start when the frontend reports
+/// that the window is usable. Later calls (a reloaded webview) return the same first value.
+pub fn ready() -> u64 {
+    static READY: OnceLock<u64> = OnceLock::new();
+    *READY.get_or_init(|| {
+        let started = *STARTED.get_or_init(Instant::now);
+        let startup_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        tracing::info!(startup_ms, "window usable");
+        startup_ms
+    })
+}
 
 const FILE_PREFIX: &str = "dunlin";
 const FILE_SUFFIX: &str = "log";

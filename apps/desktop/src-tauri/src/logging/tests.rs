@@ -67,6 +67,14 @@ async fn a_command_is_logged_by_name_duration_and_error_code_only() {
 }
 
 #[test]
+fn the_cold_start_is_measured_once() {
+    mark_start();
+    let first = ready();
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    assert_eq!(ready(), first);
+}
+
+#[test]
 fn log_files_are_daily_in_the_given_folder() {
     let dir = tempfile::tempdir().unwrap();
     let mut appender = appender(dir.path()).unwrap();
