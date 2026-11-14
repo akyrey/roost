@@ -7,6 +7,7 @@ import { copyText } from "../../lib/clipboard";
 import { NO_TEXT_SUBSTITUTION } from "../../lib/quotes";
 import { toTsv } from "./copy";
 import { useSettings } from "../settings/settingsStore";
+import { type ShortcutId, isMac, keysOf, matchesBinding } from "../shortcuts/registry";
 import { KIND_CLASS, present } from "./present";
 import {
   type CellPos,
@@ -81,12 +82,14 @@ export type GridEditing = {
 
 type Editing = { cell: CellPos; draft: string; error: string | null };
 
+/** Whether `event` is one of the registry's keys for `id`. */
+const pressed = (event: KeyboardEvent<HTMLDivElement>, id: ShortcutId): boolean =>
+  keysOf(id).some((binding) => matchesBinding(event, binding));
+
 const ROW_HEIGHT = 24;
 const ROW_NUMBER_WIDTH = 56;
 const OVERSCAN_ROWS = 12;
 const OVERSCAN_COLS = 4;
-
-const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 /** Row- and column-virtualised grid with selection, keyboard navigation, resizing and copy. */
 export function DataGrid({
@@ -242,11 +245,11 @@ export function DataGrid({
 
   const onEditKeys = (event: KeyboardEvent<HTMLDivElement>, mod: boolean): boolean => {
     if (!edit || !range) return false;
-    if (mod && event.shiftKey && event.key === "Backspace") {
+    if (pressed(event, "grid-set-null")) {
       edit.onSetNull(selectedCells());
       return true;
     }
-    if (mod && event.key === "Backspace") {
+    if (pressed(event, "grid-delete-rows")) {
       const selectedRows = Array.from(
         { length: range.bottom - range.top + 1 },
         (_, i) => range.top + i,
@@ -255,7 +258,7 @@ export function DataGrid({
       return true;
     }
     if (!focus) return false;
-    if (event.key === "Enter" || event.key === "F2") return startEdit(focus);
+    if (pressed(event, "grid-edit")) return startEdit(focus);
     // Typing starts editing with what was typed.
     if (event.key.length === 1 && !mod && !event.altKey && edit.kind(focus) !== "bool") {
       return edit.kind(focus) !== "long" && startEdit(focus, event.key);
@@ -270,12 +273,12 @@ export function DataGrid({
       event.preventDefault();
       return;
     }
-    if (mod && event.key.toLowerCase() === "a") {
+    if (pressed(event, "grid-select-all")) {
       event.preventDefault();
       setSelection(selectAll(bounds));
       return;
     }
-    if (mod && event.key.toLowerCase() === "c" && range) {
+    if (pressed(event, "grid-copy") && range) {
       event.preventDefault();
       void copyText(toTsv(rows, range));
       return;
@@ -285,7 +288,7 @@ export function DataGrid({
       onActivate?.(focus);
       return;
     }
-    if (event.key === "Escape") {
+    if (pressed(event, "grid-clear-selection")) {
       setSelection(null);
       return;
     }
