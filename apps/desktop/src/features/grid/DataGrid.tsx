@@ -6,6 +6,7 @@ import type { EditorKind, Parsed } from "../edit/editors";
 import { copyText } from "../../lib/clipboard";
 import { NO_TEXT_SUBSTITUTION } from "../../lib/quotes";
 import { toTsv } from "./copy";
+import { useSettings } from "../settings/settingsStore";
 import { KIND_CLASS, present } from "./present";
 import {
   type CellPos,
@@ -559,10 +560,11 @@ type CellProps = {
 function Cell(props: CellProps) {
   const { value, column, colIndex, left, width, selected, focused, onFollow, edited, original } =
     props;
-  const shown = present(value, column.category);
+  const nullText = useSettings((s) => s.settings.nullText);
+  const shown = present(value, column.category, nullText);
   const title =
     edited && original
-      ? `${shown.text}\nOriginal: ${present(original, column.category).text}`
+      ? `${shown.text}\nOriginal: ${present(original, column.category, nullText).text}`
       : shown.text;
   return (
     <div

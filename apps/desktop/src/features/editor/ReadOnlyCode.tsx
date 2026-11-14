@@ -5,7 +5,7 @@ import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView, basicSetup } from "codemirror";
 import { useEffect, useRef } from "react";
 
-import { themeExtension } from "./theme";
+import { useEditorAppearance } from "./appearance";
 
 export type CodeLanguage = "sql" | "json" | "xml" | "text";
 
@@ -21,6 +21,7 @@ type Props = { text: string; label: string; language: CodeLanguage; wrap?: boole
 /** Highlighted text that cannot be edited: DDL, the JSON view, the cell viewer. */
 export function ReadOnlyCode({ text, label, language, wrap = false }: Props) {
   const host = useRef<HTMLDivElement>(null);
+  const appearance = useEditorAppearance();
 
   useEffect(() => {
     if (!host.current) return;
@@ -30,7 +31,7 @@ export function ReadOnlyCode({ text, label, language, wrap = false }: Props) {
         doc: text,
         extensions: [
           basicSetup,
-          themeExtension("dark"),
+          appearance,
           LANGUAGES[language](),
           wrap ? EditorView.lineWrapping : [],
           EditorState.readOnly.of(true),
@@ -42,7 +43,7 @@ export function ReadOnlyCode({ text, label, language, wrap = false }: Props) {
     return () => {
       view.destroy();
     };
-  }, [text, label, language, wrap]);
+  }, [text, label, language, wrap, appearance]);
 
   return <div ref={host} className="h-full overflow-hidden" />;
 }

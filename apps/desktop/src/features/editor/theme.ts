@@ -5,13 +5,13 @@ import { EditorView } from "codemirror";
 
 export type EditorThemeName = "dark" | "light";
 
-const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
+export type EditorFont = { family: string; size: number };
 
 /** The dark CodeMirror theme shared by every SQL view. */
 export const editorTheme = EditorView.theme(
   {
-    "&": { height: "100%", fontSize: "13px", backgroundColor: "#18181b", color: "#e4e4e7" },
-    ".cm-content": { fontFamily: MONO, caretColor: "#e4e4e7" },
+    "&": { height: "100%", backgroundColor: "#18181b", color: "#e4e4e7" },
+    ".cm-content": { caretColor: "#e4e4e7" },
     ".cm-gutters": { backgroundColor: "#18181b", color: "#71717a", border: "none" },
     ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "#27272a80" },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {
@@ -26,8 +26,13 @@ export const editorTheme = EditorView.theme(
 );
 
 const lightTheme = EditorView.theme({
-  "&": { height: "100%", fontSize: "13px", backgroundColor: "#ffffff", color: "#18181b" },
-  ".cm-content": { fontFamily: MONO, caretColor: "#18181b" },
+  "&": { height: "100%", backgroundColor: "#ffffff", color: "#18181b" },
+  ".cm-content": { caretColor: "#18181b" },
+  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {
+    backgroundColor: "#bae6fd",
+  },
+  ".cm-tooltip": { backgroundColor: "#f4f4f5", border: "1px solid #d4d4d8" },
+  ".cm-tooltip-autocomplete ul li[aria-selected]": { backgroundColor: "#bae6fd", color: "#18181b" },
   ".cm-gutters": { backgroundColor: "#ffffff", color: "#a1a1aa", border: "none" },
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "#f4f4f5" },
   ".cm-activeStatement": { backgroundColor: "#0ea5e914" },
@@ -56,10 +61,17 @@ const lightHighlight = HighlightStyle.define([
   { tag: t.typeName, color: "#be185d" },
 ]);
 
-/** Colours and syntax highlighting. The app is dark until the settings view (Phase 8) adds a
- * choice. */
-export function themeExtension(name: EditorThemeName = "dark"): Extension {
-  return name === "dark"
-    ? [editorTheme, syntaxHighlighting(darkHighlight)]
-    : [lightTheme, syntaxHighlighting(lightHighlight)];
+const fontTheme = (font: EditorFont) =>
+  EditorView.theme({
+    "&": { fontSize: `${font.size}px` },
+    ".cm-content, .cm-gutters, .cm-tooltip": { fontFamily: font.family },
+  });
+
+/** Colours, syntax highlighting and the editor font from the settings (task 8.8). */
+export function themeExtension(name: EditorThemeName, font: EditorFont): Extension {
+  const colours =
+    name === "dark"
+      ? [editorTheme, syntaxHighlighting(darkHighlight)]
+      : [lightTheme, syntaxHighlighting(lightHighlight)];
+  return [colours, fontTheme(font)];
 }
