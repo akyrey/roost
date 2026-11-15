@@ -14,6 +14,7 @@ export type ShortcutId =
   | "focus-results"
   | "run-statement"
   | "run-script"
+  | "explain"
   | "cancel"
   | "save-query"
   | "toggle-comment"
@@ -63,6 +64,12 @@ export const SHORTCUTS: readonly Shortcut[] = [
     group: "Editor",
     description: "Run the whole script",
     keys: ["Mod-Shift-Enter"],
+  },
+  {
+    id: "explain",
+    group: "Editor",
+    description: "Explain the statement at the cursor, without running it",
+    keys: ["Mod-Shift-e"],
   },
   { id: "cancel", group: "Editor", description: "Cancel the running statement", keys: ["Escape"] },
   { id: "save-query", group: "Editor", description: "Save as a saved query", keys: ["Mod-s"] },
