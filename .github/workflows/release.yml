@@ -56,7 +56,14 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm tauri build --target universal-apple-darwin
+        run: |
+          # Tauri signs whenever these variables exist, even when empty, and an unset secret
+          # arrives as an empty string: drop the empty ones so an unsigned build stays unsigned.
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+            APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then unset "$name"; fi
+          done
+          pnpm tauri build --target universal-apple-darwin
       - name: Check the bundle
         working-directory: target/universal-apple-darwin/release/bundle
         env:
