@@ -1,0 +1,84 @@
+name: Release
+
+# Builds the macOS universal app and dmg (task 8.20). A tag `v*` publishes a draft release;
+# a manual run only uploads the build as a workflow artifact.
+#
+# Signing and notarisation run when these repository secrets are set (see docs/RELEASING.md):
+#   APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
+#   APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID.
+# Without them the build is unsigned, which is fine for testing but Gatekeeper will warn.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos:
+    name: macOS universal
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches the version in Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: .
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, Cargo.toml $version"; exit 1; }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Build (signed and notarised when the Apple secrets are set)
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm tauri build --target universal-apple-darwin
+      - name: Check the bundle
+        working-directory: target/universal-apple-darwin/release/bundle
+        env:
+          SIGNED: ${{ secrets.APPLE_SIGNING_IDENTITY != '' }}
+        run: |
+          archs=$(lipo -archs macos/Dunlin.app/Contents/MacOS/*)
+          echo "architectures: $archs"
+          [[ $archs == *x86_64* && $archs == *arm64* ]]
+          if [ "$SIGNED" = "true" ]; then
+            codesign --verify --deep --strict macos/Dunlin.app
+            spctl --assess --type execute macos/Dunlin.app
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dunlin-macos-universal
+          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          retention-days: 14
+      - name: Draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: .
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --title "Dunlin $GITHUB_REF_NAME" \
+            --notes-file <(awk '/^## \[/{n++} n==1' CHANGELOG.md) \
+            target/universal-apple-darwin/release/bundle/dmg/*.dmg
