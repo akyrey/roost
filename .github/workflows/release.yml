@@ -1,7 +1,8 @@
 name: Release
 
-# Builds the macOS universal app and dmg (task 8.20). A tag `v*` publishes a draft release;
-# a manual run only uploads the build as a workflow artifact.
+# Builds the macOS universal app and dmg (task 8.20) and the Linux deb, rpm and AppImage for
+# x86_64 and arm64 (D-035). A tag `v*` publishes a draft release with every package; a manual
+# run only uploads the packages as workflow artifacts.
 #
 # Signing and notarisation run when these repository secrets are set (see docs/RELEASING.md):
 #   APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
@@ -73,12 +74,100 @@ jobs:
           name: dunlin-macos-universal
           path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 14
-      - name: Draft release
+
+  linux:
+    name: Linux ${{ matrix.arch }}
+    # The oldest supported Ubuntu LTS: the packages need its glibc (2.35) or newer.
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches the version in Cargo.toml
         if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: .
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, Cargo.toml $version"; exit 1; }
+      - name: Tauri system dependencies
+        run: |
+          sudo apt-get update
+          # libfuse2 runs the AppImage tooling; xvfb runs the installed app for the smoke test.
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libfuse2 file rpm xvfb
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Build (tauri.linux.conf.json selects deb, rpm and AppImage)
+        run: pnpm tauri build
+      - name: Check the packages
+        working-directory: target/release/bundle
+        run: |
+          dpkg-deb --info deb/*.deb
+          dpkg-deb --contents deb/*.deb | grep -E 'usr/bin/dunlin$'
+          dpkg-deb --contents deb/*.deb | grep -E 'usr/share/applications/Dunlin.desktop$'
+          rpm -qip rpm/*.rpm
+          rpm -qlp rpm/*.rpm | grep -E '^/usr/bin/dunlin$'
+          test -x appimage/*.AppImage
+      - name: Install the deb and start the app
+        working-directory: target/release/bundle
+        run: |
+          sudo apt-get install -y ./deb/*.deb
+          # No keyring runs here: the app must still start (D-035). Still running after
+          # 15 seconds, killed by `timeout` (124), means it started.
+          set +e
+          timeout 15 xvfb-run -a dunlin
+          status=$?
+          set -e
+          test "$status" -eq 124 || { echo "dunlin exited with $status"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dunlin-linux-${{ matrix.arch }}
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
+            target/release/bundle/appimage/*.AppImage
+          retention-days: 14
+
+  release:
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+      - name: Collect the files and their checksums
+        run: |
+          # Artifacts keep their deb/, rpm/ and appimage/ folders; the release takes plain files.
+          mkdir release
+          find packages -type f -exec mv -t release {} +
+          (cd release && sha256sum -- * > SHA256SUMS)
+          ls -l release
+      - name: Create the draft
         env:
           GH_TOKEN: ${{ github.token }}
-        working-directory: .
         run: |
           gh release create "$GITHUB_REF_NAME" --draft --title "Dunlin $GITHUB_REF_NAME" \
             --notes-file <(awk '/^## \[/{n++} n==1' CHANGELOG.md) \
-            target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            release/*

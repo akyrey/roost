@@ -130,23 +130,64 @@ impl SecretStore for MemorySecretStore {
     }
 }
 
-/// The OS keychain via `keyring-core`. macOS only for now (NFR-5: others in Phase 8).
+type Credentials = std::sync::Arc<keyring_core::CredentialStore>;
+type Connect = fn() -> Result<Credentials, keyring_core::Error>;
+
+/// The OS keychain via `keyring-core`: the macOS keychain, or the Secret Service on Linux
+/// (GNOME Keyring, KWallet; D-035). The store connects on first use, so the app starts without
+/// a keyring, and a failed connection is retried on the next use.
 pub struct KeychainSecretStore {
-    store: std::sync::Arc<keyring_core::CredentialStore>,
+    connect: Connect,
+    store: Mutex<Option<Credentials>>,
+}
+
+#[cfg(target_os = "macos")]
+fn connect_native() -> Result<Credentials, keyring_core::Error> {
+    let store: Credentials = apple_native_keyring_store::keychain::Store::new()?;
+    Ok(store)
+}
+
+#[cfg(target_os = "linux")]
+fn connect_native() -> Result<Credentials, keyring_core::Error> {
+    let store: Credentials = zbus_secret_service_keyring_store::Store::new()?;
+    Ok(store)
 }
 
 impl KeychainSecretStore {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub fn open() -> Result<Self, StoreError> {
-        let store = apple_native_keyring_store::keychain::Store::new().map_err(keychain_error)?;
-        Ok(Self { store })
+        let store = Self::with_connect(connect_native);
+        // The macOS keychain is always there: fail at start, as before.
+        #[cfg(target_os = "macos")]
+        store.credentials()?;
+        Ok(store)
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     pub fn open() -> Result<Self, StoreError> {
         Err(StoreError::Keychain(
             "No keychain is supported on this platform yet".into(),
         ))
+    }
+
+    fn with_connect(connect: Connect) -> Self {
+        Self {
+            connect,
+            store: Mutex::new(None),
+        }
+    }
+
+    fn credentials(&self) -> Result<Credentials, StoreError> {
+        let mut slot = self
+            .store
+            .lock()
+            .map_err(|_| StoreError::Keychain("The keychain lock was poisoned".into()))?;
+        if let Some(store) = slot.as_ref() {
+            return Ok(std::sync::Arc::clone(store));
+        }
+        let store = (self.connect)().map_err(unavailable)?;
+        *slot = Some(std::sync::Arc::clone(&store));
+        Ok(store)
     }
 
     fn entry(
@@ -154,9 +195,24 @@ impl KeychainSecretStore {
         connection_id: &str,
         kind: SecretKind,
     ) -> Result<keyring_core::Entry, StoreError> {
-        self.store
+        self.credentials()?
             .build(KEYCHAIN_SERVICE, &kind.account(connection_id), None)
             .map_err(keychain_error)
+    }
+}
+
+/// The keychain could not be reached at all (no Secret Service on the session bus, say).
+fn unavailable(error: keyring_core::Error) -> StoreError {
+    let hint = if cfg!(target_os = "linux") {
+        ": passwords are kept by the Secret Service; run GNOME Keyring or KWallet in your session"
+    } else {
+        ""
+    };
+    match keychain_error(error) {
+        StoreError::Keychain(message) => {
+            StoreError::Keychain(format!("The keychain is not available ({message}){hint}"))
+        }
+        other => other,
     }
 }
 
@@ -273,8 +329,59 @@ mod tests {
         assert!(!error.to_string().contains("hunter2"));
     }
 
-    /// Uses the real macOS keychain; run by hand: `cargo test -p dbc-store keychain -- --ignored`.
-    #[cfg(target_os = "macos")]
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static FAILED_CONNECTS: AtomicUsize = AtomicUsize::new(0);
+    static GOOD_CONNECTS: AtomicUsize = AtomicUsize::new(0);
+
+    fn no_service() -> Result<Credentials, keyring_core::Error> {
+        FAILED_CONNECTS.fetch_add(1, Ordering::SeqCst);
+        Err(keyring_core::Error::NoStorageAccess(
+            "org.freedesktop.secrets was not provided by any .service files".into(),
+        ))
+    }
+
+    fn mock_service() -> Result<Credentials, keyring_core::Error> {
+        GOOD_CONNECTS.fetch_add(1, Ordering::SeqCst);
+        let store: Credentials = keyring_core::mock::Store::new()?;
+        Ok(store)
+    }
+
+    #[test]
+    fn a_missing_keyring_fails_each_use_with_a_hint_and_is_retried() {
+        let store = KeychainSecretStore::with_connect(no_service);
+
+        let first = store.get("c1", SecretKind::DbPassword).unwrap_err();
+        let second = store
+            .set("c1", SecretKind::DbPassword, &secret("x"))
+            .unwrap_err();
+
+        assert!(
+            first.to_string().contains("The keychain is not available"),
+            "{first}"
+        );
+        assert!(second.to_string().contains("not available"));
+        assert_eq!(
+            FAILED_CONNECTS.load(Ordering::SeqCst),
+            2,
+            "retried on each use"
+        );
+    }
+
+    #[test]
+    fn the_store_connects_once_on_first_use() {
+        let store = KeychainSecretStore::with_connect(mock_service);
+        assert_eq!(GOOD_CONNECTS.load(Ordering::SeqCst), 0, "not at open");
+
+        store.get("c1", SecretKind::DbPassword).unwrap();
+        store.get("c2", SecretKind::SshPassword).unwrap();
+
+        assert_eq!(GOOD_CONNECTS.load(Ordering::SeqCst), 1);
+    }
+
+    /// Uses the real keychain (macOS) or Secret Service (Linux; CI runs it under
+    /// `dbus-run-session` with GNOME Keyring). By hand: `cargo test -p dbc-store keychain -- --ignored`.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     #[ignore = "touches the real keychain"]
     fn keychain_round_trip() {
