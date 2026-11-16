@@ -8,6 +8,10 @@ name: Release
 #   APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
 #   APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID.
 # Without them the build is unsigned, which is fine for testing but Gatekeeper will warn.
+#
+# In-app updates (D-036) need TAURI_SIGNING_PRIVATE_KEY (and TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+# if the key has one; unset, it is an empty password). With it, every bundle is signed for the updater and the release gets a
+# `latest.json`. A tag build fails without it, since installed copies could not update from it.
 
 on:
   push:
@@ -48,6 +52,18 @@ jobs:
           cache: pnpm
           cache-dependency-path: apps/desktop/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: Updater signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "UPDATER_CONFIG=--config=$GITHUB_WORKSPACE/apps/desktop/src-tauri/tauri.updater.conf.json" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set: installed copies could not update to this release"
+            exit 1
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set: building without updater bundles"
+          fi
       - name: Build (signed and notarised when the Apple secrets are set)
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -56,6 +72,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           # Tauri signs whenever these variables exist, even when empty, and an unset secret
           # arrives as an empty string: drop the empty ones so an unsigned build stays unsigned.
@@ -63,7 +81,7 @@ jobs:
             APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
             if [ -z "${!name}" ]; then unset "$name"; fi
           done
-          pnpm tauri build --target universal-apple-darwin
+          pnpm tauri build --target universal-apple-darwin $UPDATER_CONFIG
       - name: Check the bundle
         working-directory: target/universal-apple-darwin/release/bundle
         env:
@@ -79,7 +97,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: dunlin-macos-universal
-          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          path: |
+            target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+            target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
           retention-days: 14
 
   linux:
@@ -122,8 +143,23 @@ jobs:
           cache: pnpm
           cache-dependency-path: apps/desktop/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: Updater signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "UPDATER_CONFIG=--config=$GITHUB_WORKSPACE/apps/desktop/src-tauri/tauri.updater.conf.json" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set: installed copies could not update to this release"
+            exit 1
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set: building without updater bundles"
+          fi
       - name: Build (tauri.linux.conf.json selects deb, rpm and AppImage)
-        run: pnpm tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build $UPDATER_CONFIG
       - name: Check the packages
         working-directory: target/release/bundle
         run: |
@@ -151,6 +187,7 @@ jobs:
             target/release/bundle/deb/*.deb
             target/release/bundle/rpm/*.rpm
             target/release/bundle/appimage/*.AppImage
+            target/release/bundle/*/*.sig
           retention-days: 14
 
   release:
@@ -164,11 +201,18 @@ jobs:
         with:
           path: packages
           merge-multiple: true
-      - name: Collect the files and their checksums
+      - name: Collect the files, the updater manifest and the checksums
         run: |
           # Artifacts keep their deb/, rpm/ and appimage/ folders; the release takes plain files.
-          mkdir release
+          mkdir release signatures
           find packages -type f -exec mv -t release {} +
+          awk '/^## \[/{n++} n==1' CHANGELOG.md > notes.md
+          # The in-app prompt shows the changes without the version heading.
+          tail -n +2 notes.md > update-notes.md
+          node apps/desktop/scripts/updater-manifest.mjs release "$GITHUB_REF_NAME" \
+            "$GITHUB_REPOSITORY" update-notes.md
+          # The signatures are inside latest.json; the release does not need them as files.
+          mv release/*.sig signatures/
           (cd release && sha256sum -- * > SHA256SUMS)
           ls -l release
       - name: Create the draft
@@ -176,5 +220,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" --draft --title "Dunlin $GITHUB_REF_NAME" \
-            --notes-file <(awk '/^## \[/{n++} n==1' CHANGELOG.md) \
+            --notes-file notes.md \
             release/*
