@@ -4,10 +4,14 @@ name: Release
 # x86_64 and arm64 (D-035). A tag `v*` publishes a draft release with every package; a manual
 # run only uploads the packages as workflow artifacts.
 #
-# Signing and notarisation run when these repository secrets are set (see docs/RELEASING.md):
-#   APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
-#   APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID.
-# Without them the build is unsigned, which is fine for testing but Gatekeeper will warn.
+# The macOS app is always signed (D-037, see docs/RELEASING.md), with the first of:
+#   1. A Developer ID certificate, notarised: APPLE_CERTIFICATE (base64 .p12),
+#      APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD
+#      (app-specific password), APPLE_TEAM_ID. Gatekeeper opens it without a warning.
+#   2. A self-signed certificate: SELF_SIGNED_CERTIFICATE (base64 .p12) and
+#      SELF_SIGNED_CERTIFICATE_PASSWORD. Gatekeeper warns once; the keychain keeps trusting
+#      the app across updates.
+#   3. Ad hoc. Gatekeeper warns once; the keychain asks again after every update.
 #
 # In-app updates (D-036) need TAURI_SIGNING_PRIVATE_KEY (and TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 # if the key has one; unset, it is an empty password). With it, every bundle is signed for the updater and the release gets a
@@ -64,7 +68,37 @@ jobs:
           else
             echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set: building without updater bundles"
           fi
-      - name: Build (signed and notarised when the Apple secrets are set)
+      - name: Self-signed certificate (when there is no Developer ID one)
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          SELF_SIGNED_CERTIFICATE: ${{ secrets.SELF_SIGNED_CERTIFICATE }}
+          SELF_SIGNED_CERTIFICATE_PASSWORD: ${{ secrets.SELF_SIGNED_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ] || [ -z "$SELF_SIGNED_CERTIFICATE" ]; then exit 0; fi
+          # Tauri imports only Apple-issued certificates, so this one goes into a keychain of its
+          # own on the search list, and the build names it by its SHA-1 hash.
+          keychain="$RUNNER_TEMP/self-signed.keychain-db"
+          p12="$RUNNER_TEMP/self-signed.p12"
+          password=$(openssl rand -hex 16)
+          echo "$SELF_SIGNED_CERTIFICATE" | base64 --decode > "$p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -t 3600 -u "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$p12" -k "$keychain" -P "$SELF_SIGNED_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          rm "$p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" \
+            "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" \
+            $(security list-keychains -d user | tr -d '"')
+          # The certificate is not trusted, so `-v` would hide it; codesign signs with it anyway.
+          identity=$(security find-identity -p codesigning "$keychain" | awk '/^ *1\)/ {print $2; exit}')
+          if [ -z "$identity" ]; then
+            echo "::error::SELF_SIGNED_CERTIFICATE holds no code signing identity"
+            exit 1
+          fi
+          echo "SELF_SIGNED_IDENTITY=$identity" >> "$GITHUB_ENV"
+      - name: Build (signed; notarised when the Apple secrets are set)
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -76,22 +110,29 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           # Tauri signs whenever these variables exist, even when empty, and an unset secret
-          # arrives as an empty string: drop the empty ones so an unsigned build stays unsigned.
+          # arrives as an empty string: drop the empty ones.
           for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
             APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
             if [ -z "${!name}" ]; then unset "$name"; fi
           done
+          # No Developer ID: sign with the self-signed certificate, or ad hoc ("-").
+          if [ -z "${APPLE_CERTIFICATE:-}" ] && [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            export APPLE_SIGNING_IDENTITY="${SELF_SIGNED_IDENTITY:--}"
+          fi
           pnpm tauri build --target universal-apple-darwin $UPDATER_CONFIG
       - name: Check the bundle
         working-directory: target/universal-apple-darwin/release/bundle
         env:
-          SIGNED: ${{ secrets.APPLE_SIGNING_IDENTITY != '' }}
+          NOTARISED: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_ID != '' }}
         run: |
           archs=$(lipo -archs macos/Dunlin.app/Contents/MacOS/*)
           echo "architectures: $archs"
           [[ $archs == *x86_64* && $archs == *arm64* ]]
-          if [ "$SIGNED" = "true" ]; then
-            codesign --verify --deep --strict macos/Dunlin.app
+          codesign --verify --deep --strict macos/Dunlin.app
+          codesign --display --verbose=2 macos/Dunlin.app 2>&1 | grep -E '^(Authority|Signature)='
+          codesign --display --requirements - macos/Dunlin.app 2>&1 | grep designated
+          # Only a notarised app passes Gatekeeper; self-signed and ad hoc ones are refused here.
+          if [ "$NOTARISED" = "true" ]; then
             spctl --assess --type execute macos/Dunlin.app
           fi
       - uses: actions/upload-artifact@v4
