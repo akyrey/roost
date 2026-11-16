@@ -507,7 +507,7 @@ function HeaderCell({
       aria-sort={onSort ? ariaSort : undefined}
       className="absolute top-0 flex h-full items-center"
       style={{ left, width }}
-      title={`${column.name} · ${column.typeName || column.category}${onSort ? " · click to sort, shift-click to add" : ""}`}
+      title={`${column.name}\n${column.typeName || column.category}${onSort ? "\nClick to sort, shift-click to add" : ""}`}
     >
       <button
         type="button"
@@ -519,7 +519,6 @@ function HeaderCell({
         {column.primaryKey && <span className="text-[9px] font-bold text-amber-300">PK</span>}
         {column.references && <span className="text-[9px] font-bold text-sky-300">FK</span>}
         <span className="truncate font-semibold text-zinc-200">{column.name}</span>
-        <span className="truncate text-[10px] font-normal text-zinc-500">{column.typeName}</span>
         {sorted && (
           <span className="ml-auto text-sky-300" aria-hidden="true">
             {sorted.descending ? "▼" : "▲"}
