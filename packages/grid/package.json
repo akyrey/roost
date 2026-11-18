@@ -7,16 +7,16 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "dependencies": {
-    "@roost/ui": "workspace:*",
-    "@roost/shortcuts": "workspace:*"
-  },
   "peerDependencies": {
-    "react": "^19.3.1",
-    "@tanstack/react-virtual": "^3.14.26"
+    "@roost/shortcuts": "*",
+    "@roost/ui": "*",
+    "@tanstack/react-virtual": "^3.14.26",
+    "react": "^19.3.1"
   },
   "devDependencies": {
-    "react": "^19.3.1",
-    "@tanstack/react-virtual": "^3.14.26"
+    "@roost/shortcuts": "workspace:*",
+    "@roost/ui": "workspace:*",
+    "@tanstack/react-virtual": "^3.14.26",
+    "react": "^19.3.1"
   }
 }

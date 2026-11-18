@@ -7,14 +7,13 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "dependencies": {
-    "@roost/ui": "workspace:*"
-  },
   "peerDependencies": {
+    "@roost/ui": "*",
     "react": "^19.3.1",
     "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@roost/ui": "workspace:*",
     "react": "^19.3.1",
     "zustand": "^5.1.0"
   }
