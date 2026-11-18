@@ -78,7 +78,7 @@ async fn reports_and_remembers_a_newer_version() {
     let base = release_server(200, String::new()).await;
     let base = release_server(200, manifest(&base, "999.0.0")).await;
     let app = app();
-    let pending = PendingUpdate::default();
+    let pending = PendingUpdate::new("Test");
 
     let info = check(updater(&app, &base), &pending)
         .await
@@ -98,16 +98,13 @@ async fn an_older_or_equal_version_is_not_an_update_and_forgets_the_last_one() {
     let current = app().package_info().version.to_string();
     let same = release_server(200, manifest(&base, &current)).await;
     let app = app();
-    let pending = PendingUpdate::default();
+    let pending = PendingUpdate::new("Test");
     check(updater(&app, &newer), &pending).await.unwrap();
 
     let info = check(updater(&app, &same), &pending).await.unwrap();
 
     assert_eq!(info, None);
-    assert_eq!(
-        pending.current().err().map(|e| e.code).as_deref(),
-        Some("not_found")
-    );
+    assert_eq!(pending.current().err().map(|e| e.code), Some("not_found"));
 }
 
 #[tokio::test]
@@ -115,7 +112,7 @@ async fn a_server_error_is_reported_as_update_failed() {
     let base = release_server(404, "Not Found".to_owned()).await;
     let app = app();
 
-    let error = check(updater(&app, &base), &PendingUpdate::default())
+    let error = check(updater(&app, &base), &PendingUpdate::new("Test"))
         .await
         .unwrap_err();
 
@@ -129,7 +126,7 @@ async fn a_server_error_is_reported_as_update_failed() {
 
 #[tokio::test]
 async fn installing_without_a_checked_update_is_not_found() {
-    let error = install(&PendingUpdate::default(), |_| {})
+    let error = install(&PendingUpdate::new("Test"), |_| {})
         .await
         .unwrap_err();
 
@@ -141,7 +138,7 @@ async fn refuses_a_download_whose_signature_is_not_from_the_release_key() {
     let base = release_server(200, String::new()).await;
     let base_with_manifest = release_server(200, manifest(&base, "999.0.0")).await;
     let app = app();
-    let pending = PendingUpdate::default();
+    let pending = PendingUpdate::new("Test");
     check(updater(&app, &base_with_manifest), &pending)
         .await
         .unwrap();

@@ -1,0 +1,26 @@
+[package]
+name = "roost-keychain"
+description = "Secrets in the OS keychain (macOS keychain, Secret Service on Linux), shared by Dunlin and Whimbrel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+keyring-core = "1"
+secrecy = "0.10"
+thiserror.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+
+# The freedesktop Secret Service (GNOME Keyring, KWallet), over zbus: no libdbus or OpenSSL.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store = { version = "1", features = ["rt-tokio-crypto-rust"] }
+
+[dev-dependencies]
+uuid.workspace = true
+
+[lints]
+workspace = true

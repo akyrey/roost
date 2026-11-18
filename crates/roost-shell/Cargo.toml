@@ -1,0 +1,31 @@
+[package]
+name = "roost-shell"
+description = "The desktop shell shared by Dunlin and Whimbrel: signed in-app updates and log files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# TypeScript bindings for the IPC types (the app exports them with its own).
+ts = ["dep:ts-rs"]
+
+[dependencies]
+serde.workspace = true
+tauri-plugin-updater = "2.14"
+thiserror.workspace = true
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json", "std", "registry"] }
+ts-rs = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+tauri = { version = "2.12", features = ["test"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["net", "io-util"] }
+
+[lints]
+workspace = true
