@@ -1,5 +1,4 @@
-import { Button } from "../../components/Button";
-import { Modal } from "../../components/Modal";
+import { Button, Modal } from "@roost/ui";
 import { SHORTCUTS, type ShortcutGroup, shortcutLabel } from "./registry";
 
 const GROUPS: ShortcutGroup[] = ["General", "Tabs", "Editor", "Grid"];

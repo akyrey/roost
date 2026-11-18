@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { toast } from "../../components/toastStore";
+import { toast } from "@roost/ui";
 import { type UpdateInfo, toAppError, updateCheck, updateInstall } from "../../ipc";
 
 /** `startup` stays quiet unless an update is found; `manual` reports every outcome. */

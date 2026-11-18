@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { copyWithToast } from "../lib/copy";
+import { copyWithToast } from "./copy";
 import { Toaster } from "./Toaster";
 import { TOAST_MS, toast, useToasts } from "./toastStore";
 

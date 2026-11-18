@@ -3,7 +3,7 @@ import { type KeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useS
 
 import type { SortKey, TypeCategory, Value } from "../../ipc";
 import type { EditorKind, Parsed } from "../edit/editors";
-import { copyWithToast } from "../../lib/copy";
+import { copyWithToast } from "@roost/ui";
 import { NO_TEXT_SUBSTITUTION } from "../../lib/quotes";
 import { toTsv } from "./copy";
 import { useSettings } from "../settings/settingsStore";

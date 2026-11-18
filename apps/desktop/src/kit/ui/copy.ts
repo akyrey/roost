@@ -1,4 +1,4 @@
-import { toast } from "../components/toastStore";
+import { toast } from "./toastStore";
 import { copyText } from "./clipboard";
 
 /** Copies and says so in a toast, or says why it could not. Never rejects. */
