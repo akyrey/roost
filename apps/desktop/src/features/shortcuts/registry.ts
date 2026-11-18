@@ -1,5 +1,6 @@
-/** Every keyboard shortcut in the app (task 8.10). Keys use CodeMirror's notation (`Mod` is ⌘ on
- * macOS and Ctrl elsewhere), so the editor binds the same strings it shows. */
+/** Every keyboard shortcut in the app (task 8.10). Lookup, labels and matching come from
+ * @roost/shortcuts. */
+import { type Shortcut as KitShortcut, createShortcutRegistry } from "@roost/shortcuts";
 
 export type ShortcutGroup = "General" | "Tabs" | "Editor" | "Grid";
 
@@ -26,13 +27,7 @@ export type ShortcutId =
   | "grid-delete-rows"
   | "grid-clear-selection";
 
-export type Shortcut = {
-  id: ShortcutId;
-  group: ShortcutGroup;
-  description: string;
-  /** Alternatives, each like `Mod-Shift-Enter`. */
-  keys: readonly string[];
-};
+export type Shortcut = KitShortcut<ShortcutId, ShortcutGroup>;
 
 export const SHORTCUTS: readonly Shortcut[] = [
   { id: "palette", group: "General", description: "Command palette", keys: ["Mod-k"] },
@@ -98,8 +93,6 @@ export const SHORTCUTS: readonly Shortcut[] = [
   },
 ];
 
-const BY_ID = new Map(SHORTCUTS.map((s) => [s.id, s]));
-
 /** Shortcuts handled at window level (the editor and the grid handle their own). */
 const GLOBAL: readonly ShortcutId[] = [
   "palette",
@@ -112,74 +105,10 @@ const GLOBAL: readonly ShortcutId[] = [
   "focus-results",
 ];
 
-export const isMac = (): boolean =>
-  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ["General", "Tabs", "Editor", "Grid"];
 
-export function keysOf(id: ShortcutId): readonly string[] {
-  return BY_ID.get(id)?.keys ?? [];
-}
+export const registry = createShortcutRegistry(SHORTCUTS, GLOBAL);
 
-/** The first binding of `id`, for CodeMirror keymaps. */
-export function bindingOf(id: ShortcutId): string {
-  return keysOf(id)[0] ?? "";
-}
+export const { keysOf, bindingOf, shortcutLabel, matchShortcut } = registry;
 
-const SYMBOLS: Record<string, { mac: string; other: string }> = {
-  Mod: { mac: "⌘", other: "Ctrl+" },
-  Ctrl: { mac: "⌃", other: "Ctrl+" },
-  Alt: { mac: "⌥", other: "Alt+" },
-  Shift: { mac: "⇧", other: "Shift+" },
-};
-
-const KEY_NAMES: Record<string, string> = {
-  ArrowRight: "→",
-  ArrowLeft: "←",
-  Enter: "↩",
-  Backspace: "⌫",
-  Escape: "Esc",
-};
-
-function formatKey(binding: string, mac: boolean): string {
-  const parts = binding.split("-");
-  const key = parts.pop() ?? "";
-  // "Mod-Shift--" would bind "-"; no shortcut uses it.
-  const modifiers = parts.map((m) => SYMBOLS[m]?.[mac ? "mac" : "other"] ?? `${m}+`).join("");
-  const name = KEY_NAMES[key] ?? (key.length === 1 ? key.toUpperCase() : key);
-  return `${modifiers}${name}`;
-}
-
-/** How a shortcut is shown, e.g. `⌘T` or `Ctrl+T`; alternatives joined with "or". */
-export function shortcutLabel(id: ShortcutId, mac = isMac()): string {
-  return keysOf(id)
-    .map((k) => formatKey(k, mac))
-    .join(" or ");
-}
-
-type Keys = Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">;
-
-/** The physical key for a printable character, for when a modifier changes `key`. */
-function codeOf(key: string): string | null {
-  if (/^[a-z]$/i.test(key)) return `Key${key.toUpperCase()}`;
-  if (/^[0-9]$/.test(key)) return `Digit${key}`;
-  const punctuation: Record<string, string> = { "/": "Slash", ",": "Comma", ".": "Period" };
-  return punctuation[key] ?? null;
-}
-
-export function matchesBinding(event: Keys, binding: string, mac = isMac()): boolean {
-  const parts = binding.split("-");
-  const key = parts.pop() ?? "";
-  const mods = new Set(parts);
-  const wantMeta = mac && mods.has("Mod");
-  const wantCtrl = mods.has("Ctrl") || (!mac && mods.has("Mod"));
-  if (event.metaKey !== wantMeta || event.ctrlKey !== wantCtrl) return false;
-  if (event.altKey !== mods.has("Alt") || event.shiftKey !== mods.has("Shift")) return false;
-  // With Option or Shift held, `key` is the composed character (`®`, `?`); `code` is the key.
-  const code = codeOf(key);
-  if (code && (event.altKey || event.shiftKey)) return event.code === code;
-  return event.key.toLowerCase() === key.toLowerCase();
-}
-
-/** The window-level shortcut `event` triggers, if any. */
-export function matchShortcut(event: Keys, mac = isMac()): ShortcutId | null {
-  return GLOBAL.find((id) => keysOf(id).some((k) => matchesBinding(event, k, mac))) ?? null;
-}
+export { isMac, matchesBinding } from "@roost/shortcuts";
