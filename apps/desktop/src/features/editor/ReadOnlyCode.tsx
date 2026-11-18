@@ -1,20 +1,11 @@
-import { json } from "@codemirror/lang-json";
-import { sql } from "@codemirror/lang-sql";
-import { xml } from "@codemirror/lang-xml";
-import { EditorState, type Extension } from "@codemirror/state";
+import { EditorState } from "@codemirror/state";
 import { EditorView, basicSetup } from "codemirror";
 import { useEffect, useRef } from "react";
 
 import { useEditorAppearance } from "./appearance";
+import { type CodeLanguage, LANGUAGES } from "./languages";
 
-export type CodeLanguage = "sql" | "json" | "xml" | "text";
-
-const LANGUAGES: Record<CodeLanguage, () => Extension> = {
-  sql: () => sql(),
-  json: () => json(),
-  xml: () => xml(),
-  text: () => [],
-};
+export type { CodeLanguage } from "./languages";
 
 type Props = { text: string; label: string; language: CodeLanguage; wrap?: boolean };
 
