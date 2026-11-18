@@ -1,0 +1,297 @@
+name: Release an app
+
+# Reusable: builds a Tauri app's signed macOS universal app and dmg, and its Linux deb, rpm and
+# AppImage for x86_64 and arm64, then (for a `v*` tag) a draft release with every package, the
+# updater manifest and checksums. Shared by Dunlin and Whimbrel; moves to the Roost repository.
+#
+# The macOS app is always signed, with the first of:
+#   1. A Developer ID certificate, notarised: APPLE_CERTIFICATE (base64 .p12),
+#      APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD
+#      (app-specific password), APPLE_TEAM_ID. Gatekeeper opens it without a warning.
+#   2. A self-signed certificate: SELF_SIGNED_CERTIFICATE (base64 .p12) and
+#      SELF_SIGNED_CERTIFICATE_PASSWORD. Gatekeeper warns once; the keychain keeps trusting
+#      the app across updates.
+#   3. Ad hoc. Gatekeeper warns once; the keychain asks again after every update.
+#
+# In-app updates need TAURI_SIGNING_PRIVATE_KEY (and TAURI_SIGNING_PRIVATE_KEY_PASSWORD if the
+# key has one). With it, every bundle is signed for the updater and the release gets a
+# `latest.json`. A tag build fails without it, since installed copies could not update from it.
+# Each app has its own updater key.
+
+on:
+  workflow_call:
+    inputs:
+      app-dir:
+        description: The app's folder, holding package.json and src-tauri.
+        type: string
+        required: true
+      product-name:
+        description: The product name, as in tauri.conf.json (the .app and .desktop names).
+        type: string
+        required: true
+      binary-name:
+        description: The installed binary, as in the deb and rpm.
+        type: string
+        required: true
+    secrets:
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_SIGNING_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      SELF_SIGNED_CERTIFICATE:
+        required: false
+      SELF_SIGNED_CERTIFICATE_PASSWORD:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos:
+    name: macOS universal
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.app-dir }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tag matches the version in Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: .
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, Cargo.toml $version"; exit 1; }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v6
+        with:
+          # The version is the packageManager pin in package.json.
+          package_json_file: ${{ inputs.app-dir }}/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.app-dir }}/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Updater signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "UPDATER_CONFIG=--config=$GITHUB_WORKSPACE/${{ inputs.app-dir }}/src-tauri/tauri.updater.conf.json" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set: installed copies could not update to this release"
+            exit 1
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set: building without updater bundles"
+          fi
+      - name: Self-signed certificate (when there is no Developer ID one)
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          SELF_SIGNED_CERTIFICATE: ${{ secrets.SELF_SIGNED_CERTIFICATE }}
+          SELF_SIGNED_CERTIFICATE_PASSWORD: ${{ secrets.SELF_SIGNED_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ] || [ -z "$SELF_SIGNED_CERTIFICATE" ]; then exit 0; fi
+          # Tauri imports only Apple-issued certificates, so this one goes into a keychain of its
+          # own on the search list, and the build names it by its SHA-1 hash.
+          keychain="$RUNNER_TEMP/self-signed.keychain-db"
+          p12="$RUNNER_TEMP/self-signed.p12"
+          password=$(openssl rand -hex 16)
+          echo "$SELF_SIGNED_CERTIFICATE" | base64 --decode > "$p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -t 3600 -u "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$p12" -k "$keychain" -P "$SELF_SIGNED_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          rm "$p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" \
+            "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" \
+            $(security list-keychains -d user | tr -d '"')
+          # The certificate is not trusted, so `-v` would hide it; codesign signs with it anyway.
+          identity=$(security find-identity -p codesigning "$keychain" | awk '/^ *1\)/ {print $2; exit}')
+          if [ -z "$identity" ]; then
+            echo "::error::SELF_SIGNED_CERTIFICATE holds no code signing identity"
+            exit 1
+          fi
+          echo "SELF_SIGNED_IDENTITY=$identity" >> "$GITHUB_ENV"
+      - name: Build (signed; notarised when the Apple secrets are set)
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          # Tauri signs whenever these variables exist, even when empty, and an unset secret
+          # arrives as an empty string: drop the empty ones.
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+            APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then unset "$name"; fi
+          done
+          # No Developer ID: sign with the self-signed certificate, or ad hoc ("-").
+          if [ -z "${APPLE_CERTIFICATE:-}" ] && [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            export APPLE_SIGNING_IDENTITY="${SELF_SIGNED_IDENTITY:--}"
+          fi
+          pnpm tauri build --target universal-apple-darwin $UPDATER_CONFIG
+      - name: Check the bundle
+        working-directory: target/universal-apple-darwin/release/bundle
+        env:
+          NOTARISED: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_ID != '' }}
+        run: |
+          archs=$(lipo -archs "macos/${{ inputs.product-name }}.app/Contents/MacOS/"*)
+          echo "architectures: $archs"
+          [[ $archs == *x86_64* && $archs == *arm64* ]]
+          codesign --verify --deep --strict "macos/${{ inputs.product-name }}.app"
+          codesign --display --verbose=2 "macos/${{ inputs.product-name }}.app" 2>&1 | grep -E '^(Authority|Signature)='
+          codesign --display --requirements - "macos/${{ inputs.product-name }}.app" 2>&1 | grep designated
+          # Only a notarised app passes Gatekeeper; self-signed and ad hoc ones are refused here.
+          if [ "$NOTARISED" = "true" ]; then
+            spctl --assess --type execute "macos/${{ inputs.product-name }}.app"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.binary-name }}-macos-universal
+          path: |
+            target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+            target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
+          retention-days: 14
+
+  linux:
+    name: Linux ${{ matrix.arch }}
+    # The oldest supported Ubuntu LTS: the packages need its glibc (2.35) or newer.
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    defaults:
+      run:
+        working-directory: ${{ inputs.app-dir }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tag matches the version in Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: .
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, Cargo.toml $version"; exit 1; }
+      - name: Tauri system dependencies
+        run: |
+          sudo apt-get update
+          # libfuse2 runs the AppImage tooling; xvfb runs the installed app for the smoke test.
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libfuse2 file rpm xvfb
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v6
+        with:
+          # The version is the packageManager pin in package.json.
+          package_json_file: ${{ inputs.app-dir }}/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.app-dir }}/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Updater signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "UPDATER_CONFIG=--config=$GITHUB_WORKSPACE/${{ inputs.app-dir }}/src-tauri/tauri.updater.conf.json" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set: installed copies could not update to this release"
+            exit 1
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set: building without updater bundles"
+          fi
+      - name: Build (tauri.linux.conf.json selects deb, rpm and AppImage)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build $UPDATER_CONFIG
+      - name: Check the packages
+        working-directory: target/release/bundle
+        run: |
+          dpkg-deb --info deb/*.deb
+          dpkg-deb --contents deb/*.deb | grep -E 'usr/bin/${{ inputs.binary-name }}$'
+          dpkg-deb --contents deb/*.deb | grep -E 'usr/share/applications/${{ inputs.product-name }}.desktop$'
+          rpm -qip rpm/*.rpm
+          rpm -qlp rpm/*.rpm | grep -E '^/usr/bin/${{ inputs.binary-name }}$'
+          test -x appimage/*.AppImage
+      - name: Install the deb and start the app
+        working-directory: target/release/bundle
+        run: |
+          sudo apt-get install -y ./deb/*.deb
+          # No keyring runs here: the app must still start (D-035). Still running after
+          # 15 seconds, killed by `timeout` (124), means it started.
+          set +e
+          timeout 15 xvfb-run -a ${{ inputs.binary-name }}
+          status=$?
+          set -e
+          test "$status" -eq 124 || { echo "${{ inputs.binary-name }} exited with $status"; exit 1; }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.binary-name }}-linux-${{ matrix.arch }}
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/*/*.sig
+          retention-days: 14
+
+  release:
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: packages
+          merge-multiple: true
+      - name: Collect the files, the updater manifest and the checksums
+        run: |
+          # Artifacts keep their deb/, rpm/ and appimage/ folders; the release takes plain files.
+          mkdir release signatures
+          find packages -type f -exec mv -t release {} +
+          awk '/^## \[/{n++} n==1' CHANGELOG.md > notes.md
+          # The in-app prompt shows the changes without the version heading.
+          tail -n +2 notes.md > update-notes.md
+          node ${{ inputs.app-dir }}/scripts/updater-manifest.mjs release "$GITHUB_REF_NAME" \
+            "$GITHUB_REPOSITORY" update-notes.md
+          # The signatures are inside latest.json; the release does not need them as files.
+          mv release/*.sig signatures/
+          (cd release && sha256sum -- * > SHA256SUMS)
+          ls -l release
+      - name: Create the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --title "${{ inputs.product-name }} $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            release/*
