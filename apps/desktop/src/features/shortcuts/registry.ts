@@ -1,5 +1,6 @@
 /** Every keyboard shortcut in the app (task 8.10). Lookup, labels and matching come from
  * @roost/shortcuts. */
+import { GRID_KEYS } from "@roost/grid";
 import { type Shortcut as KitShortcut, createShortcutRegistry } from "@roost/shortcuts";
 
 export type ShortcutGroup = "General" | "Tabs" | "Editor" | "Grid";
@@ -70,26 +71,36 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: "save-query", group: "Editor", description: "Save as a saved query", keys: ["Mod-s"] },
   { id: "toggle-comment", group: "Editor", description: "Toggle comment", keys: ["Mod-/"] },
   { id: "find", group: "Editor", description: "Find and replace", keys: ["Mod-f"] },
-  { id: "grid-copy", group: "Grid", description: "Copy the selection as TSV", keys: ["Mod-c"] },
-  { id: "grid-select-all", group: "Grid", description: "Select all cells", keys: ["Mod-a"] },
-  { id: "grid-edit", group: "Grid", description: "Edit the cell", keys: ["Enter", "F2"] },
+  {
+    id: "grid-copy",
+    group: "Grid",
+    description: "Copy the selection as TSV",
+    keys: GRID_KEYS["grid-copy"],
+  },
+  {
+    id: "grid-select-all",
+    group: "Grid",
+    description: "Select all cells",
+    keys: GRID_KEYS["grid-select-all"],
+  },
+  { id: "grid-edit", group: "Grid", description: "Edit the cell", keys: GRID_KEYS["grid-edit"] },
   {
     id: "grid-set-null",
     group: "Grid",
     description: "Set the cells to NULL",
-    keys: ["Mod-Shift-Backspace"],
+    keys: GRID_KEYS["grid-set-null"],
   },
   {
     id: "grid-delete-rows",
     group: "Grid",
     description: "Delete the selected rows",
-    keys: ["Mod-Backspace"],
+    keys: GRID_KEYS["grid-delete-rows"],
   },
   {
     id: "grid-clear-selection",
     group: "Grid",
     description: "Clear the selection",
-    keys: ["Escape"],
+    keys: GRID_KEYS["grid-clear-selection"],
   },
 ];
 

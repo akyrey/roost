@@ -18,3 +18,4 @@ export {
 } from "./theme";
 export { DEFAULT_EDITOR_SETTINGS, type EditorSettings, useEditorSettings } from "./editorSettings";
 export { EditorSettingsProvider } from "./EditorSettingsProvider";
+export { NO_TEXT_SUBSTITUTION, hasTypographicQuotes, straightenQuotes } from "./quotes";
