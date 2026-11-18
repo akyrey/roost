@@ -9,3 +9,12 @@ export { Toaster } from "./Toaster";
 export { TOAST_MS, type Toast, type ToastKind, toast, useToasts } from "./toastStore";
 export { copyText } from "./clipboard";
 export { copyWithToast } from "./copy";
+export {
+  type ResolvedTheme,
+  type ThemeSetting,
+  resolveTheme,
+  useApplyTheme as useApplyResolvedTheme,
+  usePrefersDark,
+} from "./theme";
+export { DEFAULT_EDITOR_SETTINGS, type EditorSettings, useEditorSettings } from "./editorSettings";
+export { EditorSettingsProvider } from "./EditorSettingsProvider";
