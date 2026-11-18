@@ -1,16 +1,32 @@
 import { type KeyboardEvent, useId, useMemo, useState } from "react";
 
-import { shortcutLabel } from "../shortcuts/registry";
-import type { PaletteCommand } from "./commands";
 import { filterByQuery } from "./match";
+
+/** One row of the palette. */
+export type PaletteItem = {
+  id: string;
+  /** Shown on the left and searched. */
+  group: string;
+  label: string;
+  /** Shown on the right when there is no hint: where the item lives, its state. */
+  detail?: string;
+  /** Shown on the right, e.g. the shortcut's label. */
+  hint?: string;
+  run: () => void;
+};
 
 /** Rows shown at once; typing narrows the rest. */
 const MAX_SHOWN = 50;
 
-type Props = { commands: readonly PaletteCommand[]; onClose: () => void };
+type Props = {
+  commands: readonly PaletteItem[];
+  onClose: () => void;
+  /** Also the input's accessible name. */
+  placeholder?: string;
+};
 
-/** The command palette (task 8.9): type to filter, arrows to choose, Enter to run. */
-export function CommandPalette({ commands, onClose }: Props) {
+/** The command palette: type to filter, arrows to choose, Enter to run. */
+export function CommandPalette({ commands, onClose, placeholder = "Search commands" }: Props) {
   const [query, setQuery] = useState("");
   const [chosen, setChosen] = useState(0);
   const listId = useId();
@@ -24,7 +40,7 @@ export function CommandPalette({ commands, onClose }: Props) {
   );
   const index = Math.min(chosen, Math.max(shown.length - 1, 0));
 
-  const run = (command: PaletteCommand | undefined) => {
+  const run = (command: PaletteItem | undefined) => {
     if (!command) return;
     onClose();
     command.run();
@@ -64,8 +80,8 @@ export function CommandPalette({ commands, onClose }: Props) {
           aria-expanded="true"
           aria-controls={listId}
           aria-activedescendant={shown[index] ? `${listId}-${index}` : undefined}
-          aria-label="Search commands, connections, tables and saved queries"
-          placeholder="Search commands, connections, tables and saved queries"
+          aria-label={placeholder}
+          placeholder={placeholder}
           className="w-full border-b border-zinc-800 bg-transparent px-4 py-3 text-sm text-zinc-100 outline-none"
           value={query}
           onChange={(e) => {
@@ -97,10 +113,8 @@ export function CommandPalette({ commands, onClose }: Props) {
             >
               <span className="w-24 shrink-0 text-xs text-zinc-500">{command.group}</span>
               <span className="flex-1 truncate">{command.label}</span>
-              {(command.shortcut ?? command.detail) && (
-                <span className="text-xs text-zinc-500">
-                  {command.shortcut ? shortcutLabel(command.shortcut) : command.detail}
-                </span>
+              {(command.hint ?? command.detail) && (
+                <span className="text-xs text-zinc-500">{command.hint ?? command.detail}</span>
               )}
             </li>
           ))}
