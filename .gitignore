@@ -1,0 +1,17 @@
+# Rust
+/target/
+**/*.rs.bk
+*.profraw
+lcov.info
+
+# Node
+node_modules/
+coverage/
+*.log
+.pnpm-store/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

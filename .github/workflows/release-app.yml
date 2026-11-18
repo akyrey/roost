@@ -2,7 +2,8 @@ name: Release an app
 
 # Reusable: builds a Tauri app's signed macOS universal app and dmg, and its Linux deb, rpm and
 # AppImage for x86_64 and arm64, then (for a `v*` tag) a draft release with every package, the
-# updater manifest and checksums. Shared by Dunlin and Whimbrel; moves to the Roost repository.
+# updater manifest and checksums. Shared by Dunlin and Whimbrel. Call it as
+# `akyrey/roost/.github/workflows/release-app.yml@<tag>` with `roost-ref: <tag>`.
 #
 # The macOS app is always signed, with the first of:
 #   1. A Developer ID certificate, notarised: APPLE_CERTIFICATE (base64 .p12),
@@ -31,6 +32,10 @@ on:
         required: true
       binary-name:
         description: The installed binary, as in the deb and rpm.
+        type: string
+        required: true
+      roost-ref:
+        description: The Roost tag this workflow was called at, for its scripts (pass the same tag as in `uses:`).
         type: string
         required: true
     secrets:
@@ -270,6 +275,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Roost's scripts (the updater manifest)
+        uses: actions/checkout@v7
+        with:
+          repository: akyrey/roost
+          ref: ${{ inputs.roost-ref }}
+          path: .roost
       - uses: actions/download-artifact@v8
         with:
           path: packages
@@ -282,7 +293,7 @@ jobs:
           awk '/^## \[/{n++} n==1' CHANGELOG.md > notes.md
           # The in-app prompt shows the changes without the version heading.
           tail -n +2 notes.md > update-notes.md
-          node ${{ inputs.app-dir }}/scripts/updater-manifest.mjs release "$GITHUB_REF_NAME" \
+          node .roost/scripts/updater-manifest.mjs release "$GITHUB_REF_NAME" \
             "$GITHUB_REPOSITORY" update-notes.md
           # The signatures are inside latest.json; the release does not need them as files.
           mv release/*.sig signatures/

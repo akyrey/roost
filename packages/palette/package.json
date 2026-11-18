@@ -1,0 +1,16 @@
+{
+  "name": "@roost/palette",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The command palette and its fuzzy matcher",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "react": "^19.3.1"
+  },
+  "devDependencies": {
+    "react": "^19.3.1"
+  }
+}

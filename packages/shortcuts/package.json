@@ -1,0 +1,19 @@
+{
+  "name": "@roost/shortcuts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Keyboard shortcut registry, matching and the shortcuts dialog",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@roost/ui": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.3.1"
+  },
+  "devDependencies": {
+    "react": "^19.3.1"
+  }
+}
