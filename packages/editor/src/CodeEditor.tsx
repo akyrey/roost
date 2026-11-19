@@ -1,3 +1,4 @@
+import { isolateHistory } from "@codemirror/commands";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, basicSetup } from "codemirror";
 import { useEffect, useRef } from "react";
@@ -80,7 +81,11 @@ export function CodeEditor({
   useEffect(() => {
     const current = view.current;
     if (outside === undefined || !current || outside === current.state.doc.toString()) return;
-    current.dispatch({ changes: { from: 0, to: current.state.doc.length, insert: outside } });
+    current.dispatch({
+      changes: { from: 0, to: current.state.doc.length, insert: outside },
+      // Its own undo step, never merged with typing just before or after it.
+      annotations: isolateHistory.of("full"),
+    });
   }, [outside]);
 
   // Reconfigured in place: rebuilding the editor would lose the cursor.

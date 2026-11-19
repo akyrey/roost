@@ -98,6 +98,33 @@ describe("CodeEditor", () => {
     expect(view.state.doc.toString()).toBe('{"a":1}');
   });
 
+  it("keeps an outside change apart from typing just before it in the undo history", () => {
+    const editor = (text: string) => (
+      <CodeEditor
+        initialText=""
+        text={text}
+        label="Body"
+        language="json"
+        wrap={false}
+        invalid={false}
+        onChange={vi.fn()}
+      />
+    );
+    const { rerender } = render(editor(""));
+    const view = EditorView.findFromDOM(screen.getByLabelText("Body"));
+    if (!view) throw new Error("no editor");
+
+    act(() => {
+      view.dispatch({ changes: { from: 0, insert: '{"a":1}' }, userEvent: "input.type" });
+    });
+    rerender(editor('{\n  "a": 1\n}'));
+    act(() => {
+      undo(view);
+    });
+
+    expect(view.state.doc.toString()).toBe('{"a":1}');
+  });
+
   it("keeps the text when the theme changes", () => {
     const dark = { theme: "dark" as const, font: { family: "mono", size: 13 } };
     const light = { theme: "light" as const, font: { family: "mono", size: 15 } };
