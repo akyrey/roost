@@ -1,3 +1,4 @@
+import { undo } from "@codemirror/commands";
 import { EditorSettingsProvider } from "@roost/ui";
 import { act, render, screen } from "@testing-library/react";
 import { EditorView } from "codemirror";
@@ -63,6 +64,38 @@ describe("CodeEditor", () => {
 
     expect(onChange).toHaveBeenLastCalledWith('{"name": "ada"}');
     expect(screen.getByLabelText("Body")).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("follows a new text from outside as one change that undo takes back", () => {
+    const onChange = vi.fn();
+    const editor = (text: string) => (
+      <CodeEditor
+        initialText='{"a":1}'
+        text={text}
+        label="Body"
+        language="json"
+        wrap={false}
+        invalid={false}
+        onChange={onChange}
+      />
+    );
+    const { rerender } = render(editor('{"a":1}'));
+    const view = EditorView.findFromDOM(screen.getByLabelText("Body"));
+    if (!view) throw new Error("no editor");
+
+    rerender(editor('{\n  "a": 1\n}'));
+    expect(view.state.doc.toString()).toBe('{\n  "a": 1\n}');
+    expect(onChange).toHaveBeenLastCalledWith('{\n  "a": 1\n}');
+
+    // The same text again, as a parent echoing the editor's own change does: nothing happens.
+    onChange.mockClear();
+    rerender(editor('{\n  "a": 1\n}'));
+    expect(onChange).not.toHaveBeenCalled();
+
+    act(() => {
+      undo(view);
+    });
+    expect(view.state.doc.toString()).toBe('{"a":1}');
   });
 
   it("keeps the text when the theme changes", () => {

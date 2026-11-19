@@ -6,6 +6,9 @@ import { type CodeLanguage, type LanguageSet, languageFor, useEditorAppearance }
 
 type Props = {
   initialText: string;
+  /** When given, the editor follows it: a value that differs from the document replaces it as
+   * one change, which undo takes back. Echoing the editor's own changes back does nothing. */
+  text?: string;
   label: string;
   language: CodeLanguage;
   wrap: boolean;
@@ -19,9 +22,10 @@ const invalidAttribute = (invalid: boolean) =>
   EditorView.contentAttributes.of({ "aria-invalid": String(invalid) });
 
 /** Highlighted, editable text.
- * Uncontrolled: it starts from `initialText` and reports every change. */
+ * Starts from `initialText` and reports every change; pass `text` to set it from outside too. */
 export function CodeEditor({
   initialText,
+  text: outside,
   label,
   language,
   wrap,
@@ -71,6 +75,13 @@ export function CodeEditor({
       created.destroy();
     };
   }, [label, languageExtension, wrap, appearance]);
+
+  // Applied as an edit, not a rebuild, so the cursor and the undo history survive.
+  useEffect(() => {
+    const current = view.current;
+    if (outside === undefined || !current || outside === current.state.doc.toString()) return;
+    current.dispatch({ changes: { from: 0, to: current.state.doc.length, insert: outside } });
+  }, [outside]);
 
   // Reconfigured in place: rebuilding the editor would lose the cursor.
   useEffect(() => {
