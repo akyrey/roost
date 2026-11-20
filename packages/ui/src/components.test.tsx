@@ -22,6 +22,22 @@ describe("Modal and ConfirmDialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("is medium width by default and wide when asked", () => {
+    const { rerender } = render(
+      <Modal title="Sized" onClose={() => {}}>
+        <p>body</p>
+      </Modal>,
+    );
+    expect(screen.getByRole("dialog", { name: "Sized" })).toHaveClass("w-[32rem]");
+
+    rerender(
+      <Modal title="Sized" size="wide" onClose={() => {}}>
+        <p>body</p>
+      </Modal>,
+    );
+    expect(screen.getByRole("dialog", { name: "Sized" })).toHaveClass("w-[56rem]");
+  });
+
   it("confirms or cancels", async () => {
     const onConfirm = vi.fn();
     const onCancel = vi.fn();

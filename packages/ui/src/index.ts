@@ -2,7 +2,7 @@
 export { Button } from "./Button";
 export { ConfirmDialog } from "./ConfirmDialog";
 export { ContextMenu, type ContextMenuItem } from "./ContextMenu";
-export { Modal } from "./Modal";
+export { Modal, type ModalSize } from "./Modal";
 export { PanelBoundary } from "./PanelBoundary";
 export { Skeleton } from "./Skeleton";
 export { Toaster } from "./Toaster";

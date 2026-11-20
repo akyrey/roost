@@ -1,8 +1,22 @@
 import type { ReactNode } from "react";
 
-type Props = { title: string; children: ReactNode; onClose: () => void; footer?: ReactNode };
+export type ModalSize = "medium" | "wide";
 
-export function Modal({ title, children, onClose, footer }: Props) {
+const WIDTH_CLASS: Record<ModalSize, string> = {
+  medium: "w-[32rem]",
+  wide: "w-[56rem]",
+};
+
+type Props = {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+  footer?: ReactNode;
+  /** `medium` (default) suits forms; `wide` suits tables and side-by-side panes. */
+  size?: ModalSize;
+};
+
+export function Modal({ title, children, onClose, footer, size = "medium" }: Props) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
@@ -14,7 +28,7 @@ export function Modal({ title, children, onClose, footer }: Props) {
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="w-[32rem] max-w-[90vw] rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
+        className={`${WIDTH_CLASS[size]} max-w-[90vw] rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl`}
       >
         <header className="border-b border-zinc-800 px-4 py-3 text-sm font-semibold">
           {title}
